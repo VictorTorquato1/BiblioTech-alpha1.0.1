@@ -1,0 +1,87 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "photoURL": { "type": "string", "format": "uri" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "bio": { "type": "string" },
+        "reputationScore": { "type": "number" }
+      },
+      "required": ["uid", "email", "createdAt"]
+    },
+    "Book": {
+      "title": "Book",
+      "description": "Book metadata (cached from external APIs)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "authors": { "type": "array", "items": { "type": "string" } },
+        "description": { "type": "string" },
+        "pageCount": { "type": "number" },
+        "coverUrl": { "type": "string", "format": "uri" },
+        "publishedDate": { "type": "string" },
+        "categories": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "title"]
+    },
+    "UserBook": {
+      "title": "UserBook",
+      "description": "A user's relationship with a book (tracking)",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "bookId": { "type": "string" },
+        "status": { "type": "string", "enum": ["reading", "completed", "want-to-read"] },
+        "progress": { "type": "number" },
+        "rating": { "type": "number" },
+        "review": { "type": "string" },
+        "addedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "bookDetails": { "$ref": "#/entities/Book" }
+      },
+      "required": ["userId", "bookId", "status", "addedAt"]
+    },
+    "MarketplaceListing": {
+      "title": "MarketplaceListing",
+      "description": "A book listed for sale by a user",
+      "type": "object",
+      "properties": {
+        "sellerId": { "type": "string" },
+        "bookId": { "type": "string" },
+        "price": { "type": "number" },
+        "condition": { "type": "string", "enum": ["new", "like-new", "good", "fair", "poor"] },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "sold", "cancelled"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "bookDetails": { "$ref": "#/entities/Book" },
+        "sellerName": { "type": "string" }
+      },
+      "required": ["sellerId", "bookId", "price", "condition", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles"
+    },
+    "/books/{bookId}": {
+      "schema": { "$ref": "#/entities/Book" },
+      "description": "Cached book metadata"
+    },
+    "/userBooks/{userBookId}": {
+      "schema": { "$ref": "#/entities/UserBook" },
+      "description": "User's tracked books"
+    },
+    "/marketplaceListings/{listingId}": {
+      "schema": { "$ref": "#/entities/MarketplaceListing" },
+      "description": "Books listed for sale"
+    }
+  }
+}

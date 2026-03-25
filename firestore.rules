@@ -1,0 +1,207 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId
+    // Fields:
+    //   - uid: string (required) - immutable
+    //   - displayName: string (optional)
+    //   - email: string (required) - immutable
+    //   - photoURL: string (optional)
+    //   - createdAt: timestamp (required) - immutable
+    //   - bio: string (optional)
+    //   - reputationScore: number (optional)
+    //
+    // Collection: books
+    // Document ID: bookId
+    // Fields:
+    //   - id: string (required)
+    //   - title: string (required)
+    //   - authors: list (optional)
+    //   - description: string (optional)
+    //   - pageCount: number (optional)
+    //   - coverUrl: string (optional)
+    //   - publishedDate: string (optional)
+    //   - categories: list (optional)
+    //
+    // Collection: userBooks
+    // Document ID: userBookId
+    // Fields:
+    //   - userId: string (required) - immutable
+    //   - bookId: string (required) - immutable
+    //   - status: string (required) - enum ['reading', 'completed', 'want-to-read']
+    //   - progress: number (optional)
+    //   - rating: number (optional)
+    //   - review: string (optional)
+    //   - addedAt: timestamp (required) - immutable
+    //   - updatedAt: timestamp (required)
+    //   - bookDetails: map (optional)
+    //
+    // Collection: marketplaceListings
+    // Document ID: listingId
+    // Fields:
+    //   - sellerId: string (required) - immutable
+    //   - bookId: string (required) - immutable
+    //   - price: number (required)
+    //   - condition: string (required) - enum ['new', 'like-new', 'good', 'fair', 'poor']
+    //   - description: string (optional)
+    //   - status: string (required) - enum ['active', 'sold', 'cancelled']
+    //   - createdAt: timestamp (required) - immutable
+    //   - bookDetails: map (optional)
+    //   - sellerName: string (optional)
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+    
+    function isSeller() {
+      return isAuthenticated() && request.auth.uid == resource.data.sellerId;
+    }
+
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == request.auth.uid;
+    }
+
+    function uidNotModified() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == resource.data.uid;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function validStringLength(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+        request.resource.data[field].size() >= minLen &&
+        request.resource.data[field].size() <= maxLen;
+    }
+
+    function isValidOptionalString(field, minLen, maxLen) {
+      return !(field in request.resource.data) ||
+             (request.resource.data[field] is string &&
+              request.resource.data[field].size() >= minLen &&
+              request.resource.data[field].size() <= maxLen);
+    }
+
+    function isValidUrl(url) {
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
+             data.email is string && isValidEmail(data.email) &&
+             data.createdAt is timestamp &&
+             (!( 'displayName' in data ) || (data.displayName is string && data.displayName.size() <= 100)) &&
+             (!( 'photoURL' in data ) || (isValidUrl(data.photoURL) && data.photoURL.size() <= 500)) &&
+             (!( 'bio' in data ) || (data.bio is string && data.bio.size() <= 1000)) &&
+             (!( 'reputationScore' in data ) || data.reputationScore is number);
+    }
+
+    function isValidBook(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 500 &&
+             (!( 'authors' in data ) || (data.authors is list && data.authors.size() <= 20)) &&
+             (!( 'description' in data ) || (data.description is string && data.description.size() <= 10000)) &&
+             (!( 'pageCount' in data ) || data.pageCount is number) &&
+             (!( 'coverUrl' in data ) || (isValidUrl(data.coverUrl) && data.coverUrl.size() <= 500)) &&
+             (!( 'publishedDate' in data ) || (data.publishedDate is string && data.publishedDate.size() <= 50)) &&
+             (!( 'categories' in data ) || (data.categories is list && data.categories.size() <= 20));
+    }
+
+    function isValidUserBook(data) {
+      return data.userId is string && data.userId.size() > 0 && data.userId.size() < 100 &&
+             data.bookId is string && data.bookId.size() > 0 && data.bookId.size() < 100 &&
+             data.status in ['reading', 'completed', 'want-to-read'] &&
+             data.addedAt is timestamp &&
+             data.updatedAt is timestamp &&
+             (!( 'progress' in data ) || (data.progress is number && data.progress >= 0)) &&
+             (!( 'rating' in data ) || (data.rating is number && data.rating >= 0 && data.rating <= 5)) &&
+             (!( 'review' in data ) || (data.review is string && data.review.size() <= 5000)) &&
+             (!( 'bookDetails' in data ) || data.bookDetails is map);
+    }
+
+    function isValidMarketplaceListing(data) {
+      return data.sellerId is string && data.sellerId.size() > 0 && data.sellerId.size() < 100 &&
+             data.bookId is string && data.bookId.size() > 0 && data.bookId.size() < 100 &&
+             data.price is number && data.price >= 0 &&
+             data.condition in ['new', 'like-new', 'good', 'fair', 'poor'] &&
+             data.status in ['active', 'sold', 'cancelled'] &&
+             data.createdAt is timestamp &&
+             (!( 'description' in data ) || (data.description is string && data.description.size() <= 2000)) &&
+             (!( 'sellerName' in data ) || (data.sellerName is string && data.sellerName.size() <= 100)) &&
+             (!( 'bookDetails' in data ) || data.bookDetails is map);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      // Users can only read their own profile (to protect email and PII)
+      // Public profiles would need a separate collection or denormalization
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && hasRequiredFields(['uid', 'email', 'createdAt']) && isValidUser(request.resource.data) && uidUnchanged();
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && uidNotModified() && 
+                    request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    match /books/{bookId} {
+      // Anyone authenticated can read and cache books
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && hasRequiredFields(['id', 'title']) && isValidBook(request.resource.data);
+      allow update: if isAuthenticated() && isValidBook(request.resource.data) && request.resource.data.id == resource.data.id;
+    }
+
+    match /userBooks/{userBookId} {
+      // Users can read their own books. We allow reading others' books if we want social features, but let's restrict to owner for now or allow authenticated reads.
+      // Let's allow authenticated reads so we can see what others are reading (social features).
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && 
+                    hasRequiredFields(['userId', 'bookId', 'status', 'addedAt', 'updatedAt']) && 
+                    isValidUserBook(request.resource.data);
+      allow update: if isDocOwner() && isValidUserBook(request.resource.data) && 
+                    request.resource.data.userId == resource.data.userId &&
+                    request.resource.data.bookId == resource.data.bookId &&
+                    request.resource.data.addedAt == resource.data.addedAt;
+      allow delete: if isDocOwner();
+    }
+
+    match /marketplaceListings/{listingId} {
+      // Anyone authenticated can view listings
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.sellerId == request.auth.uid &&
+                    hasRequiredFields(['sellerId', 'bookId', 'price', 'condition', 'status', 'createdAt']) &&
+                    isValidMarketplaceListing(request.resource.data);
+      allow update: if isSeller() && isValidMarketplaceListing(request.resource.data) &&
+                    request.resource.data.sellerId == resource.data.sellerId &&
+                    request.resource.data.bookId == resource.data.bookId &&
+                    request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isSeller();
+    }
+  }
+}
